@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   getPensionTaxRate,
   calcRetTax,
+  calcPensionLimit,
   calcRegNHI,
   calcVolNHI,
 } from '../../src/tax-engine';
@@ -31,27 +32,55 @@ describe('getPensionTaxRate', () => {
 });
 
 describe('calcRetTax', () => {
-  it('applies 60% discount for yrs >= 11', () => {
-    expect(calcRetTax(10000, 11)).toBe(10000 * 0.03 * 0.6);
-    expect(calcRetTax(10000, 20)).toBe(10000 * 0.03 * 0.6);
+  it('applies 70% for yrs 1-10 (퇴직소득세 × 70%)', () => {
+    expect(calcRetTax(10000, 1)).toBe(Math.round(10000 * 0.03 * 0.7));
+    expect(calcRetTax(10000, 5)).toBe(Math.round(10000 * 0.03 * 0.7));
+    expect(calcRetTax(10000, 10)).toBe(Math.round(10000 * 0.03 * 0.7));
   });
 
-  it('applies 70% discount for yrs 6-10', () => {
-    expect(calcRetTax(10000, 6)).toBe(10000 * 0.03 * 0.7);
-    expect(calcRetTax(10000, 10)).toBe(10000 * 0.03 * 0.7);
-  });
-
-  it('applies 80% discount for yrs 1-5', () => {
-    expect(calcRetTax(10000, 1)).toBe(10000 * 0.03 * 0.8);
-    expect(calcRetTax(10000, 5)).toBe(10000 * 0.03 * 0.8);
-  });
-
-  it('applies no discount for yrs < 1', () => {
-    expect(calcRetTax(10000, 0)).toBe(10000 * 0.03 * 1.0);
+  it('applies 60% for yrs >= 11 (퇴직소득세 × 60%)', () => {
+    expect(calcRetTax(10000, 11)).toBe(Math.round(10000 * 0.03 * 0.6));
+    expect(calcRetTax(10000, 20)).toBe(Math.round(10000 * 0.03 * 0.6));
   });
 
   it('returns 0 for zero amount', () => {
     expect(calcRetTax(0, 15)).toBe(0);
+  });
+});
+
+describe('calcPensionLimit', () => {
+  it('year 1: balance / 10 * 1.2', () => {
+    expect(calcPensionLimit(10000, 1)).toBe(Math.round(10000 / 10 * 1.2));
+  });
+
+  it('year 5: balance / 6 * 1.2', () => {
+    expect(calcPensionLimit(10000, 5)).toBe(Math.round(10000 / 6 * 1.2));
+  });
+
+  it('year 10: balance / 1 * 1.2', () => {
+    expect(calcPensionLimit(10000, 10)).toBe(Math.round(10000 / 1 * 1.2));
+  });
+
+  it('year 11+: no limit (returns full balance)', () => {
+    expect(calcPensionLimit(10000, 11)).toBe(10000);
+    expect(calcPensionLimit(10000, 20)).toBe(10000);
+  });
+
+  it('returns 0 for zero balance', () => {
+    expect(calcPensionLimit(0, 5)).toBe(0);
+  });
+
+  it('returns balance for negative balance', () => {
+    expect(calcPensionLimit(-100, 5)).toBe(-100);
+  });
+
+  it('limit increases each year as divisor shrinks', () => {
+    const bal = 50000;
+    const y1 = calcPensionLimit(bal, 1);
+    const y5 = calcPensionLimit(bal, 5);
+    const y10 = calcPensionLimit(bal, 10);
+    expect(y5).toBeGreaterThan(y1);
+    expect(y10).toBeGreaterThan(y5);
   });
 });
 

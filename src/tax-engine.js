@@ -4,9 +4,18 @@ export function getPensionTaxRate(age) {
   return age >= 80 ? 0.033 : age >= 70 ? 0.044 : 0.055;
 }
 
+/* IRP 퇴직급여 연금수령 시 세금
+   퇴직소득세 × 70% (1~10년차), × 60% (11년차+) */
 export function calcRetTax(amt, yrs) {
-  const d = yrs >= 11 ? 0.6 : yrs >= 6 ? 0.7 : yrs >= 1 ? 0.8 : 1.0;
-  return amt * 0.03 * d;
+  const d = yrs >= 11 ? 0.6 : 0.7;
+  return Math.round(amt * 0.03 * d);
+}
+
+/* 연금수령한도 = 잔액 ÷ (11 - min(연차,10)) × 120%
+   11년차 이상: 무제한 */
+export function calcPensionLimit(balance, year) {
+  if (year >= 11 || balance <= 0) return balance;
+  return Math.round(balance / (11 - Math.min(year, 10)) * 1.2);
 }
 
 export function calcRegNHI(inc, prop) {

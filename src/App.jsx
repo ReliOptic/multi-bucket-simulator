@@ -2,7 +2,7 @@ import { useState, useMemo, useCallback } from "react";
 import { AreaChart, Area, BarChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ComposedChart, ReferenceLine } from "recharts";
 import { motion, AnimatePresence, useSpring, useTransform } from "framer-motion";
 
-import { getPensionTaxRate, calcRetTax, calcRegNHI, calcVolNHI } from "./tax-engine";
+import { getPensionTaxRate, calcRetTax, calcPensionLimit, calcRegNHI, calcVolNHI } from "./tax-engine";
 
 /* ═══════════════════════════════════════════
    TOSS-STYLE DESIGN TOKENS
@@ -39,69 +39,158 @@ const FONT = `'Toss Product Sans', 'Pretendard Variable', 'Pretendard', -apple-s
 
 const CC = { isa: "#30C85E", pension: "#8B5CF6", irp: "#F59E0B", national: "#00BCD4", tax: "#F04452", nhi: "#F97316", net: "#3182F6", accent: "#3182F6" };
 
+/* ═══ PERSONAS ═══ */
+const PERSONAS = [
+  { label: "25세 신입", desc: "파이프라인 시작", params: { currentAge:25,retireAge:55,pensionStartAge:65,lifeExpectancy:90,annualLiving:3000,isaBalance:0,isaContrib:500,pensionSavingsBalance:0,pensionAnnualContrib:600,irpRetirementPay:0,nationalPensionMonthly:80,annualReturn:7,retireReturn:3,inflation:2.5,lastMonthSalary:350,propertyTaxBase:0,nhiBehavior:'dep',privThresh:1200 }},
+  { label: "28세 사원", desc: "ISA·연금 본격화", params: { currentAge:28,retireAge:55,pensionStartAge:65,lifeExpectancy:90,annualLiving:3000,isaBalance:500,isaContrib:1000,pensionSavingsBalance:1000,pensionAnnualContrib:900,irpRetirementPay:1000,nationalPensionMonthly:85,annualReturn:7,retireReturn:3,inflation:2.5,lastMonthSalary:400,propertyTaxBase:0,nhiBehavior:'dep',privThresh:1200 }},
+  { label: "30세 대리", desc: "결혼·내집마련", params: { currentAge:30,retireAge:55,pensionStartAge:65,lifeExpectancy:90,annualLiving:3500,isaBalance:1500,isaContrib:1500,pensionSavingsBalance:2000,pensionAnnualContrib:900,irpRetirementPay:2000,nationalPensionMonthly:90,annualReturn:7,retireReturn:3,inflation:2.5,lastMonthSalary:450,propertyTaxBase:10000,nhiBehavior:'dep',privThresh:1200 }},
+  { label: "33세 대리", desc: "고년차, 적립 가속", params: { currentAge:33,retireAge:55,pensionStartAge:65,lifeExpectancy:90,annualLiving:3500,isaBalance:3000,isaContrib:1500,pensionSavingsBalance:3500,pensionAnnualContrib:1200,irpRetirementPay:3500,nationalPensionMonthly:95,annualReturn:7,retireReturn:3,inflation:2.5,lastMonthSalary:500,propertyTaxBase:15000,nhiBehavior:'dep',privThresh:1200 }},
+  { label: "35세 과장", desc: "승진, 적극 투자", params: { currentAge:35,retireAge:55,pensionStartAge:65,lifeExpectancy:90,annualLiving:4000,isaBalance:5000,isaContrib:2000,pensionSavingsBalance:5000,pensionAnnualContrib:1500,irpRetirementPay:5000,nationalPensionMonthly:100,annualReturn:7,retireReturn:3,inflation:2.5,lastMonthSalary:550,propertyTaxBase:20000,nhiBehavior:'dep',privThresh:1200 }},
+  { label: "38세 과장", desc: "자녀 교육비 증가", params: { currentAge:38,retireAge:55,pensionStartAge:65,lifeExpectancy:90,annualLiving:4500,isaBalance:8000,isaContrib:2000,pensionSavingsBalance:7000,pensionAnnualContrib:1800,irpRetirementPay:7000,nationalPensionMonthly:110,annualReturn:7,retireReturn:3,inflation:2.5,lastMonthSalary:600,propertyTaxBase:25000,nhiBehavior:'dep',privThresh:1200 }},
+  { label: "40세 차장", desc: "자산 본격 축적", params: { currentAge:40,retireAge:55,pensionStartAge:65,lifeExpectancy:90,annualLiving:4000,isaBalance:2000,isaContrib:2000,pensionSavingsBalance:3000,pensionAnnualContrib:1800,irpRetirementPay:9000,nationalPensionMonthly:120,annualReturn:7,retireReturn:3,inflation:2.5,lastMonthSalary:600,propertyTaxBase:30000,nhiBehavior:'dep',privThresh:1200 }},
+  { label: "43세 부장", desc: "연봉 피크 접근", params: { currentAge:43,retireAge:55,pensionStartAge:65,lifeExpectancy:90,annualLiving:5000,isaBalance:15000,isaContrib:2000,pensionSavingsBalance:12000,pensionAnnualContrib:1800,irpRetirementPay:12000,nationalPensionMonthly:130,annualReturn:7,retireReturn:3,inflation:2.5,lastMonthSalary:700,propertyTaxBase:40000,nhiBehavior:'dep',privThresh:1200 }},
+  { label: "46세 부장", desc: "은퇴 준비 본격화", params: { currentAge:46,retireAge:55,pensionStartAge:65,lifeExpectancy:90,annualLiving:5000,isaBalance:20000,isaContrib:2000,pensionSavingsBalance:18000,pensionAnnualContrib:1800,irpRetirementPay:16000,nationalPensionMonthly:140,annualReturn:7,retireReturn:3,inflation:2.5,lastMonthSalary:750,propertyTaxBase:45000,nhiBehavior:'dep',privThresh:1200 }},
+  { label: "50세 임원", desc: "고연봉, 자산 큼", params: { currentAge:50,retireAge:58,pensionStartAge:65,lifeExpectancy:95,annualLiving:6000,isaBalance:30000,isaContrib:2000,pensionSavingsBalance:25000,pensionAnnualContrib:1800,irpRetirementPay:25000,nationalPensionMonthly:160,annualReturn:7,retireReturn:3,inflation:2.5,lastMonthSalary:1000,propertyTaxBase:70000,nhiBehavior:'dep',privThresh:1200 }},
+  { label: "55세 퇴직임박", desc: "인출 전략 수립", params: { currentAge:55,retireAge:56,pensionStartAge:65,lifeExpectancy:95,annualLiving:5000,isaBalance:40000,isaContrib:0,pensionSavingsBalance:35000,pensionAnnualContrib:0,irpRetirementPay:40000,nationalPensionMonthly:170,annualReturn:7,retireReturn:3,inflation:2.5,lastMonthSalary:1200,propertyTaxBase:80000,nhiBehavior:'dep',privThresh:1200 }},
+];
+
 /* ═══ SIMULATION ═══ */
 function simulate(p) {
   const r = p.annualReturn / 100;
+  const rRet = p.retireReturn / 100;
+  const inf = p.inflation / 100;
   const data = [];
+
   let isa = p.isaBalance, isaOrig = p.isaBalance;
   let pnD = 0, pD = p.pensionSavingsBalance;
-  let irp = p.irpRetirementPay, irpY = 0, irpS = false;
+  let irp = p.irpRetirementPay;
+  let irpStarted = false, irpY = 0;
+  let penStarted = false, penY = 0;
   let isaTx = 0, cumT = 0, cumN = 0;
 
   for (let age = p.currentAge; age <= p.lifeExpectancy; age++) {
-    let w=0,tax=0,nhi=0,src="",np=0,ph="",nn="";
+    let w = 0, tax = 0, nhi = 0, np = 0;
+    const sources = [];
+
+    /* ─── 적립기 ─── */
     if (age < p.retireAge) {
-      ph="적립기"; src="적립";
-      isa=isa*(1+r)+p.isaContrib; isaOrig+=p.isaContrib;
-      const dd=Math.min(p.pensionAnnualContrib,900), nd=Math.max(0,p.pensionAnnualContrib-900);
-      pD=pD*(1+r)+dd; pnD+=nd;
-      irp=irp*(1+r*0.85);
-      data.push({age,ph,src,isa:Math.round(isa),pen:Math.round(pD+pnD),irp:Math.round(irp),w:0,tax:0,nhi:0,net:0,np:0,tot:Math.round(isa+pD+pnD+irp),cumT:Math.round(cumT),cumN:Math.round(cumN),nn:""});
+      isa = isa * (1 + r) + p.isaContrib; isaOrig += p.isaContrib;
+      const dd = Math.min(p.pensionAnnualContrib, 900);
+      const nd = Math.max(0, p.pensionAnnualContrib - 900);
+      pD = pD * (1 + r) + dd;
+      pnD = pnD * (1 + r) + nd;
+      irp = irp * (1 + r * 0.85);
+      data.push({ age, ph: "적립기", src: "적립", isa: Math.round(isa), pen: Math.round(pD + pnD), irp: Math.round(irp), w: 0, tax: 0, nhi: 0, net: 0, np: 0, tot: Math.round(isa + pD + pnD + irp), cumT: Math.round(cumT), cumN: Math.round(cumN), nn: "", living: 0, remaining: 0 });
       continue;
     }
-    if(age>=p.pensionStartAge) np=p.nationalPensionMonthly*12;
-    if(isa>0) isa*=(1+r*0.4);
-    if(pD>0) pD*=(1+r*0.9);
-    if(irp>0) irp*=(1+r*0.7);
-    if(age>=p.retireAge&&age>=55&&!irpS){irpS=true;irpY=0;}
-    if(irpS) irpY++;
-    const need=Math.max(0,p.annualLiving-np);
-    const yar=age-p.retireAge;
 
-    if(isaOrig>0&&isa>0){
-      ph="ISA 인출기";src="중개형ISA";
-      w=Math.min(need,isaOrig,isa); isa-=w; isaOrig-=w; tax=0;
-      if(isaOrig<=0||isa<=50){if(isa>0){const pr=isa;tax+=Math.max(0,(pr-200))*0.099;isaTx=Math.min(Math.min(pr,3000)*0.1,300);pnD+=pr;isa=0;}isaOrig=0;}
-      if(p.nhiBehavior==='dep'){nhi=0;nn="피부양자";}
-      else if(p.nhiBehavior==='vol'&&yar<3){nhi=calcVolNHI(p.lastMonthSalary);nn="임의계속";}
-      else{nhi=calcRegNHI(np,p.propertyTaxBase);nn="지역가입자";}
-    } else if(pnD>0){
-      ph="연금저축 비과세 인출기";src="연금저축 자기부담금";
-      w=Math.min(need,pnD);pnD-=w;pD-=Math.min(w,pD);tax=0;
-      if(p.nhiBehavior==='dep'){nhi=0;nn="피부양자";}
-      else if(p.nhiBehavior==='vol'&&yar<3){nhi=calcVolNHI(p.lastMonthSalary);nn="임의계속";}
-      else{nhi=calcRegNHI(np,p.propertyTaxBase);nn="지역가입자";}
-    } else if(irp>0){
-      ph="IRP 퇴직급여 인출기";src=`IRP ${irpY}년차`;
-      w=Math.min(need,irp);irp-=w;
-      tax=calcRetTax(w,irpY);
-      if(p.nhiBehavior==='dep'){nhi=0;nn="피부양자";}
-      else{nhi=calcRegNHI(np,p.propertyTaxBase);nn="지역(퇴직소득비영향)";}
-    } else if(pD>0){
-      ph="연금 수령기";src=`연금저축 ${age>=80?'3.3%':age>=70?'4.4%':'5.5%'}`;
-      w=Math.min(need,pD);pD-=w;
-      tax=Math.round(w*getPensionTaxRate(age));
-      if(p.nhiBehavior==='dep'&&w<=2000){nhi=0;nn="피부양자";}
-      else if(p.nhiBehavior==='dep'){nhi=calcRegNHI(np+w,p.propertyTaxBase);nn="피부양자상실→지역";}
-      else{nhi=w>p.privThresh?Math.round((w-p.privThresh)*0.0699):0;nn=w<=p.privThresh?"건보비영향":"사적연금건보";}
-    } else {
-      ph="자산 소진";src="—";w=0;tax=0;
-      nhi=p.nhiBehavior==='dep'?0:calcRegNHI(np,p.propertyTaxBase);nn=p.nhiBehavior==='dep'?"피부양자":"지역가입자";
+    /* ─── 은퇴기 수익률 + 국민연금 ─── */
+    if (age >= p.pensionStartAge) np = p.nationalPensionMonthly * 12;
+    if (isa > 0) isa *= (1 + rRet);
+    if (pD > 0) pD *= (1 + rRet);
+    if (pnD > 0) pnD *= (1 + rRet);
+    if (irp > 0) irp *= (1 + rRet);
+
+    if (irpStarted) irpY++;
+    if (penStarted) penY++;
+
+    const living = Math.round(p.annualLiving * Math.pow(1 + inf, age - p.currentAge));
+    let remaining = Math.max(0, living - np);
+    const yar = age - p.retireAge;
+    let pensionIncome = 0;
+
+    /* ── 1. ISA 원금 (비과세, 한도 없음) ── */
+    if (remaining > 0 && isaOrig > 0 && isa > 0) {
+      const draw = Math.min(remaining, isaOrig, isa);
+      isa -= draw; isaOrig -= draw; w += draw; remaining -= draw;
+      sources.push("ISA원금");
+      if (isaOrig <= 0 || isa <= 50) {
+        if (isa > 0) {
+          const gains = isa;
+          tax += Math.round(Math.max(0, gains - 200) * 0.099);
+          isaTx = Math.min(Math.round(Math.min(gains, 3000) * 0.1), 300);
+          pnD += gains; isa = 0;
+        }
+        isaOrig = 0;
+      }
     }
-    cumT+=tax;cumN+=nhi;
-    data.push({age,ph,src,isa:Math.round(Math.max(0,isa)),pen:Math.round(Math.max(0,pD+pnD)),irp:Math.round(Math.max(0,irp)),w:Math.round(w),tax:Math.round(tax),nhi:Math.round(nhi),net:Math.round(np+w-tax-nhi),np:Math.round(np),tot:Math.round(Math.max(0,isa)+Math.max(0,pD+pnD)+Math.max(0,irp)),cumT:Math.round(cumT),cumN:Math.round(cumN),nn});
+
+    /* ── 2. 연금저축 비과세분 (자기부담금, 한도 없음) ── */
+    if (remaining > 0 && pnD > 0) {
+      const draw = Math.min(remaining, pnD);
+      pnD -= draw; w += draw; remaining -= draw;
+      sources.push("연금비과세");
+    }
+
+    /* ── 3. IRP 퇴직급여 (연금수령한도 적용) ── */
+    if (remaining > 0 && irp > 0) {
+      if (!irpStarted) { irpStarted = true; irpY = 1; }
+      const limit = calcPensionLimit(irp, irpY);
+      const draw = Math.min(remaining, limit, irp);
+      irp -= draw; w += draw; remaining -= draw;
+      tax += calcRetTax(draw, irpY);
+      sources.push(`IRP${irpY}년`);
+    }
+
+    /* ── 4. 연금저축 과세분 (연금수령한도 적용) ── */
+    if (remaining > 0 && pD > 0) {
+      if (!penStarted) { penStarted = true; penY = 1; }
+      const limit = calcPensionLimit(pD, penY);
+      const draw = Math.min(remaining, limit, pD);
+      pD -= draw; w += draw; remaining -= draw;
+      tax += Math.round(draw * getPensionTaxRate(age));
+      pensionIncome += draw;
+      sources.push(`연금${penY}년`);
+    }
+
+    /* ── 5. 한도 초과 인출 (기타소득세 16.5%) ── */
+    if (remaining > 0 && pD > 0) {
+      const draw = Math.min(remaining, pD);
+      pD -= draw; w += draw; remaining -= draw;
+      tax += Math.round(draw * 0.165);
+      pensionIncome += draw;
+      sources.push("연금초과(16.5%)");
+    }
+    if (remaining > 0 && irp > 0) {
+      const draw = Math.min(remaining, irp);
+      irp -= draw; w += draw; remaining -= draw;
+      tax += Math.round(draw * 0.165);
+      sources.push("IRP초과(16.5%)");
+    }
+
+    /* ── 단계 이름 ── */
+    let ph, src;
+    if (sources.length === 0) {
+      ph = np > 0 ? "국민연금 수령" : "자산 소진"; src = "—";
+    } else {
+      const pr = sources[0];
+      if (pr.includes("ISA")) ph = "ISA 인출기";
+      else if (pr.includes("비과세")) ph = "연금저축 비과세 인출기";
+      else if (pr.includes("IRP")) ph = "IRP 퇴직급여 인출기";
+      else ph = "연금 수령기";
+      src = sources.join(" + ");
+    }
+
+    /* ── 건보료 ── */
+    let nn = "";
+    const totalInc = np + pensionIncome;
+    if (p.nhiBehavior === 'dep') {
+      if (totalInc <= 2000) { nhi = 0; nn = "피부양자"; }
+      else { nhi = calcRegNHI(totalInc, p.propertyTaxBase); nn = "피부양자상실→지역"; }
+    } else if (p.nhiBehavior === 'vol' && yar < 3) {
+      nhi = calcVolNHI(p.lastMonthSalary); nn = "임의계속";
+    } else {
+      if (pensionIncome > p.privThresh) {
+        nhi = calcRegNHI(np + pensionIncome, p.propertyTaxBase); nn = "사적연금건보";
+      } else {
+        nhi = calcRegNHI(np, p.propertyTaxBase); nn = "지역가입자";
+      }
+    }
+
+    cumT += tax; cumN += nhi;
+    data.push({ age, ph, src, isa: Math.round(Math.max(0, isa)), pen: Math.round(Math.max(0, pD + pnD)), irp: Math.round(Math.max(0, irp)), w: Math.round(w), tax: Math.round(tax), nhi: Math.round(nhi), net: Math.round(np + w - tax - nhi), np: Math.round(np), tot: Math.round(Math.max(0, isa) + Math.max(0, pD + pnD) + Math.max(0, irp)), cumT: Math.round(cumT), cumN: Math.round(cumN), nn, living: Math.round(living), remaining: Math.round(remaining) });
   }
-  return{data,isaTx};
+  return { data, isaTx };
 }
 
 /* ═══ FORMATTERS ═══ */
@@ -224,7 +313,7 @@ function Seg({options,value,onChange}){
 function PhBar({data}){
   const ps=[];let c=null;
   data.forEach(d=>{if(!c||c.ph!==d.ph){if(c)c.e=d.age-1;c={ph:d.ph,s:d.age,e:d.age};ps.push(c);}else c.e=d.age;});
-  const cl={"적립기":T.text5,"ISA 인출기":CC.isa,"연금저축 비과세 인출기":CC.pension,"IRP 퇴직급여 인출기":CC.irp,"연금 수령기":CC.national,"자산 소진":CC.tax};
+  const cl={"적립기":T.text5,"ISA 인출기":CC.isa,"연금저축 비과세 인출기":CC.pension,"IRP 퇴직급여 인출기":CC.irp,"연금 수령기":CC.national,"국민연금 수령":CC.national,"자산 소진":CC.tax};
   const tot=data.length;
   return(
     <div>
@@ -276,15 +365,17 @@ function TT({active,payload}){
 /* ═══ MAIN ═══ */
 export function App(){
   const[p,setP]=useState({
-    currentAge:35,retireAge:55,pensionStartAge:65,lifeExpectancy:90,annualLiving:4000,
-    isaBalance:0,isaContrib:2000,pensionSavingsBalance:0,pensionAnnualContrib:900,
-    irpRetirementPay:20000,nationalPensionMonthly:100,annualReturn:8,
-    lastMonthSalary:500,propertyTaxBase:30000,nhiBehavior:'dep',privThresh:1500,
+    currentAge:40,retireAge:55,pensionStartAge:65,lifeExpectancy:90,annualLiving:4000,
+    isaBalance:2000,isaContrib:2000,pensionSavingsBalance:3000,pensionAnnualContrib:1800,
+    irpRetirementPay:30000,nationalPensionMonthly:120,annualReturn:7,
+    retireReturn:3,inflation:2.5,
+    lastMonthSalary:600,propertyTaxBase:30000,nhiBehavior:'dep',privThresh:1200,
   });
   const[tab,setTab]=useState("balance");
   const[panel,setPanel]=useState("core");
   const[showTbl,setShowTbl]=useState(false);
   const set=useCallback((k,v)=>setP(prev=>({...prev,[k]:v})),[]);
+  const loadPersona=useCallback((idx)=>setP(PERSONAS[idx].params),[]);
   const{data,isaTx}=useMemo(()=>simulate(p),[p]);
   const rd=useMemo(()=>data.filter(d=>d.age>=p.retireAge),[data,p.retireAge]);
 
@@ -315,6 +406,22 @@ export function App(){
         </p>
       </motion.div>
 
+      {/* Persona Selector */}
+      <Card style={{marginBottom:12,padding:"14px 16px"}}>
+        <div style={{fontSize:12,color:T.text4,fontWeight:600,marginBottom:8}}>페르소나 선택 (대기업 직장인)</div>
+        <div style={{display:"flex",gap:6,overflowX:"auto",paddingBottom:4,WebkitOverflowScrolling:"touch"}}>
+          {PERSONAS.map((ps,i)=>(
+            <motion.button key={i} onClick={()=>loadPersona(i)} whileTap={{scale:0.95}}
+              style={{flexShrink:0,padding:"8px 12px",borderRadius:10,border:`1.5px solid ${T.border}`,
+                background:T.white,cursor:"pointer",fontFamily:FONT,textAlign:"left",minWidth:90,
+                transition:"all 0.15s"}}>
+              <div style={{fontSize:12,fontWeight:700,color:T.text,whiteSpace:"nowrap"}}>{ps.label}</div>
+              <div style={{fontSize:10,color:T.text4,marginTop:1,whiteSpace:"nowrap"}}>{ps.desc}</div>
+            </motion.button>
+          ))}
+        </div>
+      </Card>
+
       {/* Controls */}
       <Card style={{marginBottom:12}}>
         <Seg options={[{v:"core",l:"기본 설정"},{v:"accounts",l:"계좌 설정"},{v:"nhi",l:"건보료 전략"}]} value={panel} onChange={setPanel}/>
@@ -327,9 +434,11 @@ export function App(){
                 <Sl label="현재 나이" value={p.currentAge} onChange={v=>set("currentAge",v)} min={20} max={55} unit="세"/>
                 <Sl label="퇴직 나이" value={p.retireAge} onChange={v=>set("retireAge",v)} min={40} max={65} unit="세"/>
                 <Sl label="국민연금 개시" value={p.pensionStartAge} onChange={v=>set("pensionStartAge",v)} min={60} max={70} unit="세" color={CC.national}/>
-                <Sl label="기대 수명" value={p.lifeExpectancy} onChange={v=>set("lifeExpectancy",v)} min={75} max={100} unit="세"/>
+                <Sl label="기대 수명" value={p.lifeExpectancy} onChange={v=>set("lifeExpectancy",v)} min={75} max={120} unit="세"/>
                 <Sl label="연간 생활비" value={p.annualLiving} onChange={v=>set("annualLiving",v)} min={2000} max={12000} step={100} unit="만원" color={CC.tax}/>
-                <Sl label="연평균 수익률" value={p.annualReturn} onChange={v=>set("annualReturn",v)} min={3} max={15} step={0.5} unit="%" color={CC.isa}/>
+                <Sl label="적립기 수익률" value={p.annualReturn} onChange={v=>set("annualReturn",v)} min={3} max={15} step={0.5} unit="%" color={CC.isa} info="적립기"/>
+                <Sl label="은퇴기 수익률" value={p.retireReturn} onChange={v=>set("retireReturn",v)} min={0} max={8} step={0.5} unit="%" color={CC.irp} info="보수적 운용"/>
+                <Sl label="물가상승률" value={p.inflation} onChange={v=>set("inflation",v)} min={0} max={5} step={0.5} unit="%" color={CC.nhi} info="생활비 연증가"/>
               </div>
             )}
             {panel==="accounts"&&(
@@ -364,7 +473,7 @@ export function App(){
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 20px"}}>
                   <Sl label="퇴직 전 월급" value={p.lastMonthSalary} onChange={v=>set("lastMonthSalary",v)} min={200} max={1500} step={10} unit="만원" color={CC.irp} info="임의계속 기준"/>
                   <Sl label="재산세 과세표준" value={p.propertyTaxBase} onChange={v=>set("propertyTaxBase",v)} min={0} max={100000} step={1000} unit="만원" color={CC.nhi} info="토지·건물·주택"/>
-                  <Sl label="사적연금 건보 기준" value={p.privThresh} onChange={v=>set("privThresh",v)} min={1200} max={2500} step={100} unit="만원" color={CC.nhi} info="현행 1,500만"/>
+                  <Sl label="사적연금 건보 기준" value={p.privThresh} onChange={v=>set("privThresh",v)} min={1200} max={2500} step={100} unit="만원" color={CC.nhi} info="현행 1,200만"/>
                 </div>
                 <div style={{background:T.blueBg,borderRadius:10,padding:14,marginTop:10,fontSize:12,color:T.text2,lineHeight:1.7}}>
                   <div style={{fontWeight:700,marginBottom:4,color:T.blue}}>핵심 포인트</div>
@@ -390,6 +499,67 @@ export function App(){
         <Stat label="실효세율" value={`${ef.toFixed(1)}%`} emoji="💰" color={CC.nhi}/>
         <Stat label="자산 소진" value={ex?`${ex}세`:`${p.lifeExpectancy}세+`} emoji={ex&&ex<p.lifeExpectancy?"⚠️":"✅"} color={ex&&ex<p.lifeExpectancy?CC.tax:CC.isa}/>
       </motion.div>
+
+      {/* Insights */}
+      <Card style={{marginBottom:12,padding:"16px 18px"}}>
+        <div style={{fontSize:13,fontWeight:700,color:T.blue,marginBottom:10}}>왜 이 인출 순서인가?</div>
+        <div style={{display:"grid",gap:10,fontSize:12,color:T.text2,lineHeight:1.7}}>
+          {(()=>{
+            const insights=[];
+            const phases=data.filter(d=>d.age>=p.retireAge);
+            const isaPhase=phases.filter(d=>d.src&&d.src.includes("ISA"));
+            const pnDPhase=phases.filter(d=>d.src&&d.src.includes("비과세"));
+            const irpPhase=phases.filter(d=>d.src&&d.src.includes("IRP"));
+            const penPhase=phases.filter(d=>d.ph==="연금 수령기");
+            const deplete=data.find(d=>d.age>=p.retireAge&&d.tot<=0);
+            const shortfall=phases.filter(d=>d.remaining>0);
+            const lastData=phases[phases.length-1];
+            const livingEnd=lastData?.living||0;
+
+            if(isaPhase.length>0){
+              const s=isaPhase[0].age,e=isaPhase[isaPhase.length-1].age;
+              insights.push({icon:"1️⃣",color:CC.isa,title:"ISA 원금 인출",body:`${s}~${e}세 (${e-s+1}년간) 세금 0원, 건보료 무관. 원금이므로 소득으로 잡히지 않습니다.`});
+            }
+            if(pnDPhase.length>0){
+              const s=pnDPhase[0].age,e=pnDPhase[pnDPhase.length-1].age;
+              insights.push({icon:"2️⃣",color:CC.pension,title:"연금저축 비과세분",body:`${s}~${e}세. 세액공제 안 받은 자기부담금은 비과세 인출. 건보료에도 영향 없습니다.`});
+            }
+            if(irpPhase.length>0){
+              const s=irpPhase[0].age,e=irpPhase[irpPhase.length-1].age;
+              insights.push({icon:"3️⃣",color:CC.irp,title:"IRP 퇴직급여",body:`${s}~${e}세. 퇴직소득세 70→60%로 감면. 분류과세라 건보료·종합소득에 영향 없습니다.`});
+            }
+            if(penPhase.length>0){
+              const s=penPhase[0].age,e=penPhase[penPhase.length-1].age;
+              const rate=s>=80?"3.3%":s>=70?"4.4%":"5.5%";
+              insights.push({icon:"4️⃣",color:CC.national,title:"연금저축 과세분",body:`${s}~${e}세. 연금소득세 ${rate}(나이별 감소). 연 ${p.privThresh.toLocaleString()}만원 초과 시 건보료 부과.`});
+            }
+
+            if(p.inflation>0){
+              insights.push({icon:"📊",color:CC.nhi,title:"물가상승 반영",body:`${p.inflation}% 물가상승 → ${p.lifeExpectancy}세 생활비 ${fmt(livingEnd)}`+`원 (현재 ${fmt(p.annualLiving)}원의 ${(livingEnd/p.annualLiving).toFixed(1)}배)`});
+            }
+
+            if(deplete&&deplete.age<p.lifeExpectancy){
+              insights.push({icon:"⚠️",color:CC.tax,title:"자산 소진 경고",body:`${deplete.age}세에 자산 소진. 기대수명(${p.lifeExpectancy}세)까지 ${p.lifeExpectancy-deplete.age}년 부족. 납입 확대 또는 생활비 조정이 필요합니다.`});
+            } else {
+              insights.push({icon:"✅",color:CC.isa,title:"자산 유지",body:`기대수명(${p.lifeExpectancy}세)까지 자산이 유지됩니다.${lastData?` 잔여 자산 약 ${fmt(lastData.tot)}원.`:""}`});
+            }
+
+            if(shortfall.length>0){
+              insights.push({icon:"🔒",color:CC.pension,title:"연금수령한도 영향",body:`연금수령한도(잔액÷(11-연차)×120%)로 인해 ${shortfall.length}개 연도에서 생활비 부족분 발생. 한도 초과 인출 시 기타소득세 16.5% 적용됩니다.`});
+            }
+
+            return insights.map((ins,i)=>(
+              <div key={i} style={{display:"flex",gap:10,padding:"10px 12px",background:ins.color+"0D",borderRadius:10,borderLeft:`3px solid ${ins.color}`}}>
+                <span style={{fontSize:16,flexShrink:0}}>{ins.icon}</span>
+                <div>
+                  <div style={{fontWeight:700,color:ins.color,marginBottom:2}}>{ins.title}</div>
+                  <div style={{color:T.text3,fontSize:11,lineHeight:1.6}}>{ins.body}</div>
+                </div>
+              </div>
+            ));
+          })()}
+        </div>
+      </Card>
 
       {/* Phase */}
       <Card style={{marginBottom:12}}><PhBar data={data}/></Card>
